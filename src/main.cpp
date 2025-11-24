@@ -8,23 +8,16 @@
 #include <string>
 #include <vector>
 
-
-const char screenshot_path[] = "screenshots/take_2/";
+const char screenshot_path[] = "screenshots/take_1/";
 
 
 #define RAYLIB_ENABLED 1
 #define SCREEN_W 1920
 #define SCREEN_H 1040
-//#define SCREEN_H 10
-//#define SCREEN_W 10
-//#define GRID_CELL_SIZE 40
-#define GRID_CELL_SIZE 6 
+#define GRID_CELL_SIZE 4
 #define ENABLE_SCREEN_CAPTURE 0 
-#define LD_RATIO 0.04
+#define LD_RATIO 0.7
 
-
-//#define SUR_D 20
-//const int8_t sur_d[SUR_D*2] = {0, -1, -1, 0, 1, 1, 1, 0, -1,  0, 0, 1, 1, 1, 0, -1, -1, -1};
 const int8_t sur_d[] = {0, -1, -1, 0, 1, 1, 1, 0, -1,  0, 0, 1, 1, 1, 0, -1, -1, -1};
 const double weight_grid[] =  {0, 1, sqrt(2), 1, sqrt(2), 1, sqrt(2), 1, sqrt(2)};
 
@@ -78,35 +71,6 @@ bool get_random_cell_value(){
     }
 }
 
-class Cell{
-    private:
-        size_t m_pos;
-        size_t m_columns;
-        int m_x;
-        int m_y;
-        bool m_value;
-        Color m_colour;
-    public:
-        Cell(size_t pos, bool value, size_t column_count) :
-            m_pos(pos), m_value(value), m_columns(column_count)
-    {
-        pos_to_xy(&m_x, &m_y, m_pos, m_columns);
-    }
-        ~Cell(){}
-
-        int get_x(){ return m_x; }
-        int get_y(){ return m_y; }
-        size_t get_pos(){ return m_pos; }
-        size_t get_value(){ return m_value; }
-        Color get_colour(){ return m_colour; }
-
-        void set_x(size_t x){ m_x = x; }
-        void set_y(size_t y){ m_y = y; }
-        void set_pos(size_t pos){ m_pos = pos; }
-        void set_value(size_t value){ m_value = value; }
-        void set_colour(Color colour){ m_colour = colour; }
-};
-
 
 bool rule_0_1(bool vi){ return vi & 0; }
 bool rule_2__(bool vi){ return vi & 1; }
@@ -129,7 +93,6 @@ class World{
         bool* m_cell_value_b;
         bool m_cycle_turn;
         bool* m_cell_values[2];
-        std::vector<std::unique_ptr<Cell>> m_cells;
         bool (*m_rule_array[9])(bool value);
 
     public:
@@ -148,7 +111,7 @@ class World{
             m_cell_values[1] = m_cell_value_b;
             m_cycle_turn = 0;
             m_live_count = 0;
-            create_cells();
+            setup_cells();
             m_rule_array[0] = &rule_0_1;
             m_rule_array[1] = &rule_0_1;
             m_rule_array[2] = &rule_2__;
@@ -165,31 +128,24 @@ class World{
             delete[] m_cell_value_b;
         }
 
-        void create_cells(){
+        void setup_cells(){
             for (size_t c=0; c<m_grit_count; c++){
                 bool c_value = get_random_cell_value();
-                size_t index = m_cells.size();
-                m_cell_values[m_cycle_turn][index] = c_value;
-                m_cells.push_back(std::make_unique<Cell>(index, c_value, m_columns));
-                if (c_value){
-                    m_live_count++;
-                    m_cells.at(index)->set_colour(COL_BLACK);
-                }else{
-                    m_cells.at(index)->set_colour(COL_WHITE);
-                }
+                m_cell_values[m_cycle_turn][c] = c_value;
             }
         }
+
         int get_neighbour_value_count(size_t index){
             int sum = 0;
             int other_ix;
-            int x = m_cells.at(index)->get_x();
-            int y = m_cells.at(index)->get_y();
+            int x, y;
+            pos_to_xy(&x, &y, index, m_columns);
             for (int i=1; i<9; i++){
                 int ox = x + sur_d[i];
                 int oy = y + sur_d[i+9];
                 if (ox>=0 && oy>=0 && ox<(int)m_columns && oy<(int)m_rows ){
                     xy_to_pos(&other_ix, ox, oy, m_columns); // Other node's postion.
-                    sum = sum + m_cells.at(other_ix)->get_value();
+                    sum = sum + m_cell_values[m_cycle_turn][other_ix];
                 }
             }
             return sum;
@@ -199,18 +155,16 @@ class World{
             m_live_count = 0;
             for (size_t c=0; c<m_grit_count; c++){
                 int neighbour_count = get_neighbour_value_count(c);
-                //printf("%d,", neighbour_count); 
                 bool new_val = m_cell_values[m_cycle_turn][c];
                 new_val = (*m_rule_array[neighbour_count])(new_val);
                 m_live_count = m_live_count + new_val;
                 m_cell_values[!m_cycle_turn][c] = new_val;
-                m_cells.at(c)->set_value(new_val);
             }
             m_cycle_turn = !m_cycle_turn;
         }
 
         size_t get_cell_count(){
-            return m_cells.size();
+            return m_grit_count;
         }
 
         int get_cell_index_from_pos(int x, int y){
@@ -219,14 +173,6 @@ class World{
             int pos;
             xy_to_pos(&pos, xp, yp, m_columns);
             return pos;
-        }
-
-        void set_cell_colour(size_t pos, Color colour){
-            m_cells.at(pos)->set_colour(colour);
-        }
-
-        Color get_cell_colour(size_t pos){
-            return m_cells.at(pos)->get_colour();
         }
 
         void draw_colour_cell(size_t x, size_t y, int colour){
@@ -246,14 +192,13 @@ class World{
         void draw_cells(){
             int xp, yp;
             for (size_t i=0; i<m_grit_count; i++){
-            //for (size_t i=0; i<4; i++){
                 pos_to_xy(&xp, &yp, i, m_columns);
                 size_t x = (xp * m_cell_size) + (m_remainder_w / 2);
                 size_t y = (yp * m_cell_size) + (m_remainder_h / 2);
 #if RAYLIB_ENABLED
                 if (x < m_screen_w - m_remainder_w && y < m_screen_h - m_remainder_h){
                     DrawRectangleLines(x, y, m_cell_size, m_cell_size, COL_GRAY);
-                    if (m_cells.at(i)->get_value()){
+                    if (m_cell_values[m_cycle_turn][i]){
                         draw_colour_cell(x, y, _WHITE);
                     }
                 }
@@ -262,6 +207,28 @@ class World{
         }
 };
 
+void act_on_mouse(int mouse_button, World& world){
+    int mouse_x = GetMouseX();
+    int mouse_y = GetMouseY();
+    int colour = _BLACK;
+    if (mouse_button == 0){
+        if (IsKeyDown(KEY_R)){
+            colour = _RED;
+        }
+        if (IsKeyDown(KEY_B)){
+            colour = _BLUE;
+        }
+        if (IsKeyDown(KEY_G)){
+            colour = _GREEN;
+        }
+        if (IsKeyDown(KEY_M)){
+            colour = _MAGENTA;
+        }
+    }else{
+        colour = _BLACK;
+    }
+    int cell_index = world.get_cell_index_from_pos(mouse_x, mouse_y);
+}
 
 void capture_screen(){
     static size_t capture_count = 0;
@@ -275,17 +242,22 @@ World world(SCREEN_H, SCREEN_W, GRID_CELL_SIZE);
 
 int main(){
 #if RAYLIB_ENABLED
-    //InitWindow(GRID_CELL_SIZE*GRID_CELL_COUNT, GRID_CELL_SIZE*GRID_CELL_COUNT, "window");
     InitWindow(SCREEN_W, SCREEN_H, "Tiles");
-    //SetTargetFPS(60);
+    SetTargetFPS(60);
     ToggleBorderlessWindowed();
     while (WindowShouldClose() == false){
         BeginDrawing();
+        if (IsMouseButtonPressed(0)){
+        }
+        if (IsMouseButtonPressed(1)){
+        }
 
         if(IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_Q)){
             break;
         }
-
+        if (IsKeyDown(KEY_LEFT_SHIFT) && IsKeyPressed(KEY_G)){
+            //world.setup_dijkstra();
+        }
         ClearBackground(COL_BLACK);
         world.cycle();
         world.draw_cells();
