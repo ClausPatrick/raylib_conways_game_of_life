@@ -1,4 +1,3 @@
-#include <deque>
 #include <iostream>
 #include <memory>
 #include <ostream>
@@ -10,13 +9,13 @@
 
 const char screenshot_path[] = "screenshots/take_1/";
 
-
 #define RAYLIB_ENABLED 1
 #define SCREEN_W 1920
-#define SCREEN_H 1040
+#define SCREEN_H 1080
 #define GRID_CELL_SIZE 4
-#define ENABLE_SCREEN_CAPTURE 0 
-#define LD_RATIO 0.7
+#define ENABLE_SCREEN_CAPTURE 0
+#define LD_RATIO 0.3
+#define RANDOM_SEED 1
 
 const int8_t sur_d[] = {0, -1, -1, 0, 1, 1, 1, 0, -1,  0, 0, 1, 1, 1, 0, -1, -1, -1};
 const double weight_grid[] =  {0, 1, sqrt(2), 1, sqrt(2), 1, sqrt(2), 1, sqrt(2)};
@@ -62,8 +61,8 @@ void pos_to_xy(int* x, int* y, int pos, int columns){
 
 
 bool get_random_cell_value(){
-    int cutoff = (int) (1000.0 * LD_RATIO);
-    int r = rand() % 1000;
+    int cutoff = (int) (65536.0 * LD_RATIO);
+    int r = rand() % 65536;
     if (r > cutoff){
         return 0;
     }else{
@@ -77,11 +76,19 @@ bool rule_2__(bool vi){ return vi & 1; }
 bool rule_3__(bool vi){ return vi | 1; }
 bool rule_4_p(bool vi){ return vi & 0; }
 
+enum w_states{
+    _WAIT,
+    _RUN, 
+    _STOP,
+};
 
 class World{
     private:
+        int m_state = _WAIT;
         size_t m_screen_h;
         size_t m_screen_w;
+        size_t m_field_h;
+        size_t m_field_w;
         size_t m_cell_size;
         size_t m_columns;
         size_t m_remainder_w;
@@ -89,28 +96,38 @@ class World{
         size_t m_remainder_h;
         size_t m_grit_count;
         size_t m_live_count;
+        double m_ld_ratio;
         bool* m_cell_value_a;
         bool* m_cell_value_b;
         bool m_cycle_turn;
         bool* m_cell_values[2];
         bool (*m_rule_array[9])(bool value);
+        char* state_text[];
 
     public:
         World(){}
         World(size_t screen_h, size_t screen_w, size_t cell_size) :
             m_screen_h(screen_h), m_screen_w(screen_w), m_cell_size(cell_size)
         {
-            m_columns = screen_w / m_cell_size;
-            m_rows    = screen_h / m_cell_size;
+            if (RANDOM_SEED){
+                srand(time(NULL));
+            }
+            
+            m_field_h = m_screen_h - 40;
+            m_field_w = m_screen_w;
+
+            m_columns = m_field_w / m_cell_size;
+            m_rows    = m_field_h / m_cell_size;
             m_grit_count = m_columns * m_rows;
-            m_remainder_w = screen_w - (m_cell_size * m_columns);
-            m_remainder_h = screen_h - (m_cell_size * m_rows);
+            m_remainder_w = m_field_w - (m_cell_size * m_columns);
+            m_remainder_h = m_field_h - (m_cell_size * m_rows);
             m_cell_value_a = new bool[m_grit_count];
             m_cell_value_b = new bool[m_grit_count];
             m_cell_values[0] = m_cell_value_a;
             m_cell_values[1] = m_cell_value_b;
             m_cycle_turn = 0;
             m_live_count = 0;
+            m_ld_ratio = 0;
             setup_cells();
             m_rule_array[0] = &rule_0_1;
             m_rule_array[1] = &rule_0_1;
@@ -128,6 +145,22 @@ class World{
             delete[] m_cell_value_b;
         }
 
+        void set_state(int state){
+            m_state = state;
+        }
+
+        void run(){
+            m_state = _RUN;
+        }
+
+        void stop(){
+            m_state = _STOP;
+        }
+
+        int get_state(){
+            return m_state;
+        }
+
         void setup_cells(){
             for (size_t c=0; c<m_grit_count; c++){
                 bool c_value = get_random_cell_value();
@@ -143,10 +176,16 @@ class World{
             for (int i=1; i<9; i++){
                 int ox = x + sur_d[i];
                 int oy = y + sur_d[i+9];
-                if (ox>=0 && oy>=0 && ox<(int)m_columns && oy<(int)m_rows ){
+                if (ox<0){
+                    ox = m_columns + ox;
+                }
+                if (oy<0){
+                    oy = m_rows + oy;
+                }
+                ox = ox % m_columns;
+                oy = oy % m_rows;
                     xy_to_pos(&other_ix, ox, oy, m_columns); // Other node's postion.
                     sum = sum + m_cell_values[m_cycle_turn][other_ix];
-                }
             }
             return sum;
         }
@@ -160,6 +199,7 @@ class World{
                 m_live_count = m_live_count + new_val;
                 m_cell_values[!m_cycle_turn][c] = new_val;
             }
+            m_ld_ratio = (double) m_live_count / m_grit_count;
             m_cycle_turn = !m_cycle_turn;
         }
 
@@ -185,8 +225,15 @@ class World{
                 printf("%d ", m_cell_values[m_cycle_turn][c]);
             }
             printf("\n");
-            double ratio = (double) m_live_count / m_grit_count;
-            printf("live count: %d, ratio: %.4f\n", m_live_count, ratio);
+            printf("live count: %d, ratio: %.4f\n", m_live_count, m_ld_ratio);
+        }
+
+        void draw_text(const char* text){
+            char text_buffer[255];
+            sprintf(text_buffer, "live: %d \t ratio: %1.4f \t", m_live_count, m_ld_ratio);
+            DrawText(text_buffer, 0, m_field_h + 2, 16, COL_WHITE);
+            sprintf(text_buffer, "%s, press 'q' to quit", text);
+            DrawText(text_buffer, m_field_w/2, m_field_h + 2, 16, COL_WHITE);
         }
 
         void draw_cells(){
@@ -196,8 +243,10 @@ class World{
                 size_t x = (xp * m_cell_size) + (m_remainder_w / 2);
                 size_t y = (yp * m_cell_size) + (m_remainder_h / 2);
 #if RAYLIB_ENABLED
-                if (x < m_screen_w - m_remainder_w && y < m_screen_h - m_remainder_h){
+                if (x < m_field_w - m_remainder_w && y < m_field_h - m_remainder_h){
+#if GRID_CELL_SIZE > 20
                     DrawRectangleLines(x, y, m_cell_size, m_cell_size, COL_GRAY);
+#endif
                     if (m_cell_values[m_cycle_turn][i]){
                         draw_colour_cell(x, y, _WHITE);
                     }
@@ -205,43 +254,43 @@ class World{
 #endif
             }
         }
+
+        void draw(){
+            switch (m_state){
+                case _WAIT:
+                    draw_text("Press 'r' to run.");
+                    break;
+                case _RUN:
+                    cycle();
+                    draw_cells();
+                    draw_text("Running.");
+                    break;
+                case _STOP:
+                    draw_cells();
+                    draw_text("Stopped.");
+                    break;
+            }
+        }
 };
 
-void act_on_mouse(int mouse_button, World& world){
-    int mouse_x = GetMouseX();
-    int mouse_y = GetMouseY();
-    int colour = _BLACK;
-    if (mouse_button == 0){
-        if (IsKeyDown(KEY_R)){
-            colour = _RED;
-        }
-        if (IsKeyDown(KEY_B)){
-            colour = _BLUE;
-        }
-        if (IsKeyDown(KEY_G)){
-            colour = _GREEN;
-        }
-        if (IsKeyDown(KEY_M)){
-            colour = _MAGENTA;
-        }
-    }else{
-        colour = _BLACK;
-    }
-    int cell_index = world.get_cell_index_from_pos(mouse_x, mouse_y);
-}
 
 void capture_screen(){
     static size_t capture_count = 0;
-    char file_name[255];
-    sprintf(file_name, "%sscreen_%ld.png", screenshot_path, capture_count);
-    TakeScreenshot(file_name);
-    capture_count++;
+    if (capture_count < 500){
+        char file_name[255];
+        sprintf(file_name, "%sscreen_%ld.png", screenshot_path, capture_count);
+        TakeScreenshot(file_name);
+        capture_count++;
+    }
 }
     
 World world(SCREEN_H, SCREEN_W, GRID_CELL_SIZE);
 
 int main(){
+
 #if RAYLIB_ENABLED
+    //InitWindow(GRID_CELL_SIZE*GRID_CELL_COUNT, GRID_CELL_SIZE*GRID_CELL_COUNT, "window");
+
     InitWindow(SCREEN_W, SCREEN_H, "Tiles");
     SetTargetFPS(60);
     ToggleBorderlessWindowed();
@@ -256,11 +305,21 @@ int main(){
             break;
         }
         if (IsKeyDown(KEY_LEFT_SHIFT) && IsKeyPressed(KEY_G)){
-            //world.setup_dijkstra();
         }
         ClearBackground(COL_BLACK);
-        world.cycle();
-        world.draw_cells();
+
+        if (IsKeyPressed(KEY_R)){
+            world.run();
+        }
+
+        if (IsKeyPressed(KEY_S)){
+            world.stop();
+        }
+
+        if (world.get_state() == _RUN){
+        }
+        world.draw();
+
         EndDrawing();
         if (ENABLE_SCREEN_CAPTURE){
             capture_screen();
@@ -279,6 +338,7 @@ int main(){
     world.print_cell_grit();
     world.cycle();
     world.print_cell_grit();
+    
     
 #endif //RL ENABLED
     return 0;
