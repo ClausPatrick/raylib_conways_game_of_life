@@ -1,170 +1,125 @@
-# Conway’s Game of Life
+# **Cellular Automata Renderer**
 
-### Modern C++ Implementation with Raylib Rendering and Modular Rule Engine
-
----
-
-## Overview
-
-This project is a high-performance, extensible implementation of **Conway’s Game of Life**, written in **modern C++** and rendered with **Raylib**.
-The design utilises object-oriented architecture, efficient memory handling, and a flexible rule system built around an **array of function pointers**, enabling alternative life/death behaviours beyond Conway’s original rules.
+A high-performance, multithreaded C implementation of a parametric cellular automata simulation.  
+The program supports multiple rule sets (Life-like automata), live mode-switching, gradients, randomization density, and interactive controls.  
+Rendering is done directly to the terminal using block characters for efficiency.
 
 ---
 
-## Features
+## **Features**
 
-### Real-Time Simulation
+### **Automata Rules**
+The engine supports multiple *Life-like* automata. Rules follow the classical `Bx/Sy` notation:
 
-* Uses Raylib for efficient 2D drawing.
-* Each frame updates cell state using double-buffered grids to avoid state corruption.
+- **Conway’s Life** — `B3/S23`  
+- **HighLife** — `B36/S23`  
+- **Diamoeba** — `B35678/S5678`  
+- **Seeds** — `B2/S`  
+- **Live Free or Die** — `B2/S0`  
+- **Serviettes** — `B234/S`  
+- **Anneal** — `B4678/S35678`  
+- **Replicator** — `B1357/S1357`  
 
-### Modular Rule Engine (Function Pointer Array)
 
-Rules are stored in an array indexed by neighbour count:
+Internally, the engine applies rule logic via a function-pointer array, allowing each “species” to define its own update behavior (birth, survival, flip, or perish) without complicating the core simulation loop.
 
-```cpp
-bool (*m_rule_array[9])(bool value);
-```
-
-Each function determines the next value of a cell given its current state.
-This enables alternative automata and experimentation without modifying the main simulation loop.
-
-### Clean C++ Architecture
-
-* Encapsulated `Cell` class holding position, state, and colour
-* `World` class manages cell grid, buffers, neighbour calculation, and drawing
-* Smart pointers (`std::unique_ptr<Cell>`) prevent ownership ambiguity
-* Low-level performance with direct boolean buffers
-
-### Configurable Compile-Time Options
-
-The simulation can be tuned using preprocessor constants:
-
-| Macro                   | Purpose                              |
-| ----------------------- | ------------------------------------ |
-| `SCREEN_W`, `SCREEN_H`  | Window resolution                    |
-| `GRID_CELL_SIZE`        | Cell pixel size                      |
-| `RAYLIB_ENABLED`        | Enable/disable rendering             |
-| `ENABLE_SCREEN_CAPTURE` | Automatic screenshot output          |
-| `LD_RATIO`              | Density of initial random live cells |
-
-### Optional Screen Capture
-
-Controlled via a compile-time flag, the simulation can automatically record output frames for visualization or analysis.
+New automata can be added by simply adding a rule function and plugging it into the rule-dispatch array.
 
 ---
 
-## Architecture
+## **Terminal Controls**
 
-```
-World
- ├── Cell objects (vector<unique_ptr<Cell>>)
- ├── m_cell_values[2]  → double-buffered boolean arrays
- ├── m_rule_array[9]   → function pointer rule table
- ├── cycle()           → simulation step
- ├── draw_cells()      → Raylib rendering
- └── neighbour lookup  → grid-index helper utilities
-```
+### **Simulation**
+- **Space** — pause/resume simulation   
+- **R** — randomize field (followed by digit (0~9) for density)  
+- **g** — gradient rendering  
+- **m** — enter mode-selection UI to select automata species 
+- **q** — quit
 
-The separation of logic, rendering, and data buffers ensures clarity and makes the system easy to extend.
+### **Mouse**
+- **Left Click** — toggle/add live cell  
+- **Right Click** — clear cell  
 
----
 
-## Rule System
-
-A core differentiator of this implementation is the **table-driven rule engine**:
-
-```cpp
-m_rule_array[0] = &rule_0_1;
-m_rule_array[1] = &rule_0_1;
-m_rule_array[2] = &rule_2__;
-m_rule_array[3] = &rule_3__;
-m_rule_array[4] = &rule_4_p;
-...
-```
-
-During each cycle:
-
-1. Neighbour count is computed.
-2. That count indexes the rule array.
-3. The function pointer determines the next state.
-4. The new state is written to the off-buffer.
-5. Buffers are swapped.
-
-This results in a highly flexible, cleanly decoupled ruleset that can easily be replaced or expanded.
+Mouse input works in both paused and running states.
 
 ---
 
-## Rendering
+## **Mode Selection UI**
 
-Rendering is handled strictly through Raylib:
+Press **m** to open the rule-selection window.
 
-* Grid lines drawn using `DrawRectangleLines`.
-* Live cells drawn via `draw_colour_cell`.
-* Grid is automatically centered using remainder offsets.
-* Rendering can be fully disabled (`RAYLIB_ENABLED 0`) for console-based or headless runs.
+- Use **↑ / ↓** to scroll through available automata species  
+- Press **Enter** to apply the selected rule  
+- The simulation resumes using rule and preserves density/visual settings  
+- Press **Esc** to cancel
 
-This dual-mode configuration allows testing and batch runs without the graphical overhead.
+This makes switching between Life-like species trivial.
 
 ---
 
-## Build Instructions
+## **Display / Rendering**
 
-### Dependencies
+- Full-terminal rendering using Unicode block characters   
+- HUD line at the bottom showing:
 
-* C++17-compatible compiler
-* Raylib library
-* Standard C++ build tools (make, cmake, etc.)
+  - current automaton  
+  - generation count  
+  - living cell count  
+  - density   
 
-### Example (Linux)
+
+---
+
+## **Building**
 
 ```bash
-g++ -std=c++17 main.cpp -lraylib -lm -ldl -lpthread -o life
-./life
+g++ -std=c++17 main.cpp -lraylib -lm -ldl -lpthread -o life ./life
 ```
 
-Some platforms require:
 
-```bash
--lGL -lX11
-```
-
-### Example Raylib Install (Linux)
-
-```bash
-sudo apt install libraylib-dev
-```
 
 ---
 
-## Recommended Project Layout (planned)
+## **Adding a New Automaton**
 
+1. Define a rule function, e.g.:
 
+```c
+uint8_t rule_birth3(uint8_t v) { return 1; }
 ```
-.
-├── src/
-│   ├── cell.cpp
-│   ├── cell.hpp
-│   ├── world.cpp
-│   ├── world.hpp
-│   ├── rules.hpp
-│   └── main.cpp
-├── screenshots/
-├── CMakeLists.txt
-└── README.md
+
+2. Add it to your rule table:
+
+```c
+m_rule_array[3] = &rule_birth3;
 ```
+
+3. Add an entry to the automaton list for the UI:
+
+```c
+{ "Replicator", B1357, S1357, RULE_FLIP }
+```
+
+The engine will automatically incorporate it into the selector and apply it at runtime.
 
 ---
 
-## Future Enhancements
+## **Randomization Density**
 
-* Interactive editing (click to toggle cells)
-* Multiple rulesets selectable at runtime
-* Pattern library (gliders, guns, oscillators)
-* GPU-accelerated update path
-* Save/load world state
-* Benchmark mode (headless execution)
+Press **d** or **D** to adjust the percentage (0–100%) used when reseeding the grid.  
+Displayed in the HUD as a readable value.
 
 ---
 
+## **Gradient**
 
+- gradient mode with **g**
+
+---
+
+## **Notes**
+
+- Designed for Linux terminals that support mouse input (xterm, Alacritty, etc.)  
+- Performance improves significantly on wider terminals  
+- Perfect for experimentation with Life-like automata behavior
