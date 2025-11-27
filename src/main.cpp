@@ -6,9 +6,13 @@
 #include <string.h>
 #include <string>
 #include <vector>
+#include "c_logger.h"
+#include "rgb_table.cpp"
+
+char log_buffer[1024];
 
 
-const char screenshot_path[] = "screenshots/take_1/";
+const char screenshot_path[] = "screenshots/take_4/";
 
 #define RAYLIB_ENABLED 1
 #define SCREEN_W 1920
@@ -19,6 +23,7 @@ const char screenshot_path[] = "screenshots/take_1/";
 #define RANDOM_SEED 1
 
 const int8_t sur_d[] = {0, -1, -1, 0, 1, 1, 1, 0, -1,  0, 0, 1, 1, 1, 0, -1, -1, -1};
+const double weight_grid[] =  {0, 1, sqrt(2), 1, sqrt(2), 1, sqrt(2), 1, sqrt(2)};
 
 Color COL_WHITE         = {255, 255, 255, 255};
 Color COL_GRAY          = {100, 100, 100, 255};
@@ -144,7 +149,10 @@ class World{
         uint8_t* m_cell_value_b;
         uint8_t m_cycle_turn;
         uint8_t* m_cell_values[2];
+        size_t* m_cell_ages;
+        size_t m_max_age;
         uint8_t (*m_rule_array[9])(uint8_t value);
+        //char* state_text[];
         uint8_t m_mode_ix;
         const char* m_mode_str;
         const char* m_new_mode_str;
@@ -166,8 +174,16 @@ class World{
             m_grit_count = m_columns * m_rows;
             m_remainder_w = m_field_w - (m_cell_size * m_columns);
             m_remainder_h = m_field_h - (m_cell_size * m_rows);
+            sprintf(log_buffer, "%s: height: %ld, width: %ld.", __func__, m_field_h, m_field_w);
+            logger(log_buffer, 4);
+            sprintf(log_buffer, "%s: cols: %ld, rows: %ld, cells: %ld.", __func__, m_columns, m_rows, m_grit_count);
+            logger(log_buffer, 4);
+            sprintf(log_buffer, "%s: rem_w: %ld, rem_h: %ld.", __func__, m_remainder_w, m_remainder_h);
+            logger(log_buffer, 4);
             m_cell_value_a = new uint8_t[m_grit_count];
             m_cell_value_b = new uint8_t[m_grit_count];
+            m_cell_ages = new size_t[m_grit_count];
+            m_max_age = 0;
             m_cell_values[0] = m_cell_value_a;
             m_cell_values[1] = m_cell_value_b;
             m_cycle_turn = 0;
@@ -182,6 +198,7 @@ class World{
         ~World(){ 
             delete[] m_cell_value_a;
             delete[] m_cell_value_b;
+            delete[] m_cell_ages;
         }
 
         void select_game_mode(uint8_t mode){
@@ -391,6 +408,8 @@ class World{
                 }
                 m_new_mode_str = game_mode_names[m_mode_ix];
             }
+            sprintf(log_buffer, "%s: cmix: %d, cms: %s.", __func__, m_mode_ix, m_new_mode_str);
+            logger(log_buffer, 4);
         }
 
         void set_state(int state){ m_state = state; }
@@ -415,6 +434,8 @@ class World{
         void clear(){
             for (size_t c=0; c<m_grit_count; c++){
                 m_cell_values[m_cycle_turn][c] = 0;
+                m_cell_ages[c] = 0;
+                m_max_age = 0;
             }
         }
 
@@ -423,11 +444,15 @@ class World{
                 double ratio = (double) (c % m_columns) / (double)  (m_columns + 1);
                 uint8_t c_value = get_random_cell_value(ratio);
                 m_cell_values[m_cycle_turn][c] = c_value;
+                m_cell_ages[c] = c_value;
+                m_max_age = 1;
             }
         }
 
         void randomize_cells(uint8_t ld_value){
             double ld_ratio = (double) ld_value / 11;
+            sprintf(log_buffer, "%s: ld_value: %d, ld_ratio: %f.", __func__, ld_value, ld_ratio);
+            logger(log_buffer, 4);
             setup_cells(ld_ratio);
         }
 
@@ -435,11 +460,15 @@ class World{
             for (size_t c=0; c<m_grit_count; c++){
                 uint8_t c_value = get_random_cell_value(ld_ratio);
                 m_cell_values[m_cycle_turn][c] = c_value;
+                m_cell_ages[c] = c_value;
+                m_max_age = 1;
             }
         }
 
         void set_cell(size_t index, int value){
             m_cell_values[m_cycle_turn][index] = value;
+            m_cell_ages[index] = value;
+            m_max_age = 1;
         }
 
         int get_neighbour_value_count(size_t index){
@@ -471,6 +500,7 @@ class World{
                 int neighbour_count = get_neighbour_value_count(c);
                 uint8_t new_val = m_cell_values[m_cycle_turn][c];
                 new_val = (*m_rule_array[neighbour_count])(new_val);
+                m_cell_ages[c] = (m_cell_ages[c] + new_val) * new_val; // Increment if 1, set to 0 if 0;
                 m_cell_values[!m_cycle_turn][c] = new_val;
             }
             m_cycle_turn = !m_cycle_turn;
@@ -488,9 +518,33 @@ class World{
             return pos;
         }
 
+        void draw_colour_rgb(size_t x, size_t y, int colour){
+            int colour_ix = m_cell_ages[colour];
+            if (colour_ix >= 360){
+                colour_ix = 360;
+            }
+            Color col = {
+                rgb_values[colour_ix][0], 
+                rgb_values[colour_ix][1],
+                rgb_values[colour_ix][2], 
+                255};
+
+            DrawRectangle(x+2, y+2, m_cell_size-2, m_cell_size-2, col);   
+        }
+
         void draw_colour(size_t x, size_t y, int colour){
             DrawRectangle(x+2, y+2, m_cell_size-2, m_cell_size-2, col_array[colour]);   
         }
+
+        void print_age_grit(){
+            for (int c=0; c<m_grit_count; c++){
+                if (c%m_columns==0){ printf("\n");}
+                m_max_age = std::max(m_max_age, m_cell_ages[c]);
+                printf("%d ", m_cell_ages[c]);
+            }
+            printf("\nMax age: %ld.\n", m_max_age);
+        }
+
 
         void print_cell_grit(){
             for (int c=0; c<m_grit_count; c++){
@@ -542,7 +596,7 @@ class World{
 #endif
                     if (m_cell_values[m_cycle_turn][i]){
                         m_live_count++;
-                        draw_colour(x, y, _WHITE);
+                        draw_colour_rgb(x, y, i);
                     }
                 }
 #endif
@@ -589,10 +643,11 @@ void capture_screen(){
         char file_name[255];
         sprintf(file_name, "%sscreen_%ld.png", screenshot_path, capture_count);
         TakeScreenshot(file_name);
+        sprintf(log_buffer, "%s: '%s'.", __func__, file_name);
         capture_count++;
+        logger(log_buffer, 4);
     }
 }
-
     
 World world(SCREEN_H, SCREEN_W, GRID_CELL_SIZE);
 
@@ -637,16 +692,24 @@ int main(){
         if (wait_for_mode == 1){
             int c;
             world.prompt_mode();
+            //while ((c = GetCharPressed()) != 0){
                 if (IsKeyPressed(KEY_UP)){
+                    sprintf(log_buffer, "%s: key up.", __func__ );
+                    logger(log_buffer, 4);
                     world.set_mode(1);
                 }
                 if (IsKeyPressed(KEY_DOWN)){
+                    sprintf(log_buffer, "%s: key down.", __func__ );
+                    logger(log_buffer, 4);
                     world.set_mode(-1);
                 }
                 if (IsKeyPressed(KEY_ENTER)){
+                    sprintf(log_buffer, "%s: enter.", __func__ );
+                    logger(log_buffer, 4);
                     world.set_mode(0);
                     wait_for_mode = 0;
                 }
+            //}
         }
 
         ClearBackground(COL_BLACK);
@@ -678,7 +741,9 @@ int main(){
 
         EndDrawing();
         if (ENABLE_SCREEN_CAPTURE){
-            capture_screen();
+            if (world.get_state() == _RUN){
+                capture_screen();
+            }
         }
     }
     CloseWindow();
@@ -692,6 +757,9 @@ int main(){
     world.print_cell_grit();
     world.cycle();
     world.print_cell_grit();
+    world.print_age_grit();
 #endif //RL ENABLED
+    sprintf(log_buffer, "Main is done.");
+    logger(log_buffer, 4);
     return 0;
 }
