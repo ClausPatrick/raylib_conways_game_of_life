@@ -1,4 +1,5 @@
-#include <cstdint>
+#include "rgb_table.h"
+
 
 const uint8_t rgb_values[360][6] =
 	{{255, 0, 0},
